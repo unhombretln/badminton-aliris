@@ -161,17 +161,24 @@ def try_build_round(
             a = best_a
             opts = best_a_opts
 
-            # Choose opponent:
-            # Prefer fresh matches; among them smallest gap.
-            # If repeats exist, they get a penalty; still choose smallest gap.
+            # --- RANDOM LOGIC ---
+            # Перемешиваем, чтобы не брать всегда ближайшего по рейтингу
+            random.shuffle(opts)
+
             best_b = None
             best_local = None
             best_is_repeat = None
 
             for b, is_repeat in opts:
-                local = gap(a, b) * 10
+                # Стоимость теперь зависит только от того, повтор это или нет
+                local = 0
+                
                 if is_repeat:
                     local += 1000  # repeats are expensive
+                
+                # Немного случайности для вариативности
+                local += random.random()
+
                 if best_local is None or local < best_local:
                     best_local = local
                     best_b = b
@@ -281,7 +288,8 @@ def format_schedule(pairs, sched, start_dt, round_minutes, courts):
 
 
 # -------------------- UI --------------------
-st.set_page_config(page_title="Badminton Scheduler", page_icon="🏸", layout="centered")
+# Настройка названия вкладки браузера
+st.set_page_config(page_title="Shuttle Shuffle", page_icon="🏸", layout="centered")
 
 st.markdown(
     """
@@ -343,9 +351,11 @@ div[data-testid="stCodeBlock"] code {
     unsafe_allow_html=True,
 )
 
-st.title('Бадминтон с "Aliris" 🏸')
+# --- ИЗМЕНЕННОЕ НАЗВАНИЕ ЗДЕСЬ ---
+st.title('Shuttle Shuffle 🏸')
+st.subheader('Badminton Game Scheduler')
 
-st.caption("Честные матчи по рейтингу. Повторы — только когда иначе никак. В идеале — ближе к концу.")
+st.caption("Честные матчи по рейтингу. Повторы — только когда иначе никак.")
 
 raw = st.text_area(
     "Вставь рейтинг пар (1 строка = 1 пара, сверху сильнейшие):",
