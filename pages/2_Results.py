@@ -1,4 +1,5 @@
 import re
+import io
 import streamlit as st
 import pandas as pd
 
@@ -165,12 +166,6 @@ def compute_stats(matches_df: pd.DataFrame):
     return stats_df, h2h_winner
 
 def apply_h2h_tiebreak(sorted_rows: list[dict], h2h_winner: dict, keys: list[str]) -> list[dict]:
-    """
-    Если группа равных по keys:
-      - если 2 пары и была личная встреча → победитель выше, PlaceShared=False
-      - если личной встречи нет → PlaceShared=True (место делится)
-      - если 3+ пары → PlaceShared=True (делим место)
-    """
     out = []
     i = 0
     n = len(sorted_rows)
@@ -204,11 +199,6 @@ def apply_h2h_tiebreak(sorted_rows: list[dict], h2h_winner: dict, keys: list[str
     return out
 
 def assign_places_with_ranges(rows: list[dict], key_cols: list[str]) -> list[dict]:
-    """
-    PlaceDisplay:
-      - "3" если место уникальное
-      - "3–4" если место делится
-    """
     place = 1
     i = 0
     n = len(rows)
@@ -260,8 +250,6 @@ def make_ranking(stats_df: pd.DataFrame, h2h_winner: dict, mode: str) -> pd.Data
     rows = assign_places_with_ranges(rows, key_cols)
 
     out_df = pd.DataFrame(rows)
-
-    # Place справа
     out_df = out_df[["Pair", "Games", "Wins", "Losses", "PF", "PA", "DIFF", "PlaceDisplay"]]
     out_df = out_df.rename(columns={"PlaceDisplay": "Place"})
     out_df.attrs["title"] = title
@@ -269,10 +257,8 @@ def make_ranking(stats_df: pd.DataFrame, h2h_winner: dict, mode: str) -> pd.Data
     return out_df
 
 def style_ranking(df: pd.DataFrame):
-    place_series = df["Place"].astype(str)
-
     def place_start(val: str) -> int:
-        v = val.split("–")[0].strip()
+        v = str(val).split("–")[0].strip()
         try:
             return int(v)
         except:
@@ -284,13 +270,13 @@ def style_ranking(df: pd.DataFrame):
         return [""] * len(col)
 
     def medal_row_styles(row):
-        p = place_start(str(row["Place"]))
+        p = place_start(row["Place"])
         if p == 1:
-            return ["background-color: #ffd70033;"] * len(row)  # gold
+            return ["background-color: #ffd70033;"] * len(row)
         if p == 2:
-            return ["background-color: #c0c0c033;"] * len(row)  # silver
+            return ["background-color: #c0c0c033;"] * len(row)
         if p == 3:
-            return ["background-color: #cd7f3233;"] * len(row)  # bronze
+            return ["background-color: #cd7f3233;"] * len(row)
         return [""] * len(row)
 
     def medal_place_cell_styles(col):
@@ -335,96 +321,162 @@ def build_share_text(rank_a: pd.DataFrame, rank_b: pd.DataFrame) -> str:
             lines.append(f"{medal_for(place)}{place}. {pair} — W{wins}-L{losses}, PF {pf}, PA {pa}, DIFF {diff:+d}")
         return "\n".join(lines)
 
-    text_a = fmt(rank_a, "🏆 Ranking A (by Wins):")
-    text_b = fmt(rank_b, "🎯 Ranking B (by Points):")
-    return text_a + "\n\n" + text_b
+    return fmt(rank_a, "🏆 Ranking A (by Wins):") + "\n\n" + fmt(rank_b, "🎯 Ranking B (by Points):")
+
+def build_xlsx_bytes(stats_view: pd.DataFrame, rank_a: pd.DataFrame, rank_b: pd.DataFrame) -> bytes:
+    """
+    Делает один XLSX с тремя листами.
+    """
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        stats_view.to_excel(writer, index=False, sheet_name="Stats")
+        rank_a.to_excel(writer, index=False, sheet_name="Ranking_A_Wins")
+        rank_b.to_excel(writer, index=False, sheet_name="Ranking_B_Points")
+    return output.getvalue()
 
 # =======================
-# BUTTON ACTION
+# SESSION STATE helpers
 # =======================
 
-if st.button("Посчитать турнир"):
+if "computed" not in st.session_state:
+    st.session_state.computed = False
+
+def store_results(
+    matches_df: pd.DataFrame,
+    stats_view: pd.DataFrame,
+    rank_a: pd.DataFrame,
+    rank_b: pd.DataFrame,
+    share_text: str,
+    xlsx_bytes: bytes,
+):
+    st.session_state.computed = True
+    st.session_state.matches_df = matches_df
+    st.session_state.stats_view = stats_view
+    st.session_state.rank_a = rank_a
+    st.session_state.rank_b = rank_b
+    st.session_state.share_text = share_text
+    st.session_state.xlsx_bytes = xlsx_bytes
+
+def clear_results():
+    st.session_state.computed = False
+    for k in ["matches_df", "stats_view", "rank_a", "rank_b", "share_text", "xlsx_bytes"]:
+        if k in st.session_state:
+            del st.session_state[k]
+
+# =======================
+# ACTIONS (buttons)
+# =======================
+
+cbtn1, cbtn2 = st.columns([1, 1])
+with cbtn1:
+    do_compute = st.button("Посчитать турнир", type="primary")
+with cbtn2:
+    if st.button("Сбросить результаты"):
+        clear_results()
+
+if do_compute:
     rows, errors = parse_matches(results_text)
 
-    st.subheader("Распознано матчей")
-    if rows:
-        matches_df = pd.DataFrame(rows)
-        st.dataframe(matches_df, use_container_width=True)
-    else:
-        st.info("Пока ни одного корректного матча не распознано.")
-        matches_df = None
-
-    st.subheader("Ошибки")
     if errors:
+        st.session_state.computed = False
+        st.subheader("Ошибки")
         st.error("\n".join(errors))
+    elif not rows:
+        st.session_state.computed = False
+        st.info("Пока ни одного корректного матча не распознано.")
     else:
-        st.success("Ошибок не найдено ✅")
-
-    if matches_df is not None and len(matches_df) > 0 and not errors:
+        matches_df = pd.DataFrame(rows)
         stats_df, h2h_winner = compute_stats(matches_df)
 
-        st.divider()
-        st.subheader("Статистика по парам")
         stats_view = stats_df[["Team", "Pair", "Games", "Wins", "Losses", "PF", "PA", "DIFF"]].sort_values("Team")
-        st.dataframe(stats_view, use_container_width=True)
-
         rank_a = make_ranking(stats_df, h2h_winner, mode="wins")
         rank_b = make_ranking(stats_df, h2h_winner, mode="points")
-
-        st.divider()
-        st.subheader(rank_a.attrs["title"])
-        st.caption(rank_a.attrs["caption"])
-        st.dataframe(style_ranking(rank_a), use_container_width=True)
-
-        st.subheader(rank_b.attrs["title"])
-        st.caption(rank_b.attrs["caption"])
-        st.dataframe(style_ranking(rank_b), use_container_width=True)
-
-        # =======================
-        # DOWNLOADS (CSV)
-        # =======================
-        st.divider()
-        st.subheader("⬇️ Скачать таблицы")
-
-        st.download_button(
-            "Download Stats (CSV)",
-            data=stats_view.to_csv(index=False).encode("utf-8"),
-            file_name="stats.csv",
-            mime="text/csv"
-        )
-
-        st.download_button(
-            "Download Ranking A - Wins (CSV)",
-            data=rank_a.to_csv(index=False).encode("utf-8"),
-            file_name="ranking_a_wins.csv",
-            mime="text/csv"
-        )
-
-        st.download_button(
-            "Download Ranking B - Points (CSV)",
-            data=rank_b.to_csv(index=False).encode("utf-8"),
-            file_name="ranking_b_points.csv",
-            mime="text/csv"
-        )
-
-        # =======================
-        # SHARE TEXT (copy/paste + txt)
-        # =======================
-        st.divider()
-        st.subheader("📋 Итоги для чата")
-
         share_text = build_share_text(rank_a, rank_b)
-        st.write("Кликни в поле → Ctrl+A → Ctrl+C (и вставляй в WhatsApp/Telegram).")
-        st.text_area("Готовый текст", value=share_text, height=260)
+        xlsx_bytes = build_xlsx_bytes(stats_view, rank_a, rank_b)
 
-        st.download_button(
-            "⬇️ Скачать итоги (.txt)",
-            data=share_text.encode("utf-8"),
-            file_name="badminton_results.txt",
-            mime="text/plain"
-        )
+        store_results(matches_df, stats_view, rank_a, rank_b, share_text, xlsx_bytes)
 
-        st.info("Если Place выглядит как `3–4`, значит место делится (личной встречи не было или равных больше двух).")
+# =======================
+# RENDER (uses session_state)
+# =======================
 
-    elif matches_df is not None and len(matches_df) > 0 and errors:
-        st.warning("Исправь ошибки выше — и пересчитаем.")
+if st.session_state.computed:
+    matches_df = st.session_state.matches_df
+    stats_view = st.session_state.stats_view
+    rank_a = st.session_state.rank_a
+    rank_b = st.session_state.rank_b
+    share_text = st.session_state.share_text
+    xlsx_bytes = st.session_state.xlsx_bytes
+
+    st.subheader("Распознано матчей")
+    st.dataframe(matches_df, use_container_width=True)
+
+    st.divider()
+    st.subheader("Статистика по парам")
+    st.dataframe(stats_view, use_container_width=True)
+
+    st.divider()
+    st.subheader(rank_a.attrs.get("title", "Ranking A"))
+    st.caption(rank_a.attrs.get("caption", ""))
+    st.dataframe(style_ranking(rank_a), use_container_width=True)
+
+    st.subheader(rank_b.attrs.get("title", "Ranking B"))
+    st.caption(rank_b.attrs.get("caption", ""))
+    st.dataframe(style_ranking(rank_b), use_container_width=True)
+
+    # Downloads
+    st.divider()
+    st.subheader("⬇️ Скачать таблицы")
+
+    # ✅ Excel-friendly CSV: UTF-8 with BOM
+    st.download_button(
+        "Download Stats (CSV, Excel-safe)",
+        data=stats_view.to_csv(index=False).encode("utf-8-sig"),
+        file_name="stats.csv",
+        mime="text/csv",
+        key="dl_stats",
+    )
+
+    st.download_button(
+        "Download Ranking A - Wins (CSV, Excel-safe)",
+        data=rank_a.to_csv(index=False).encode("utf-8-sig"),
+        file_name="ranking_a_wins.csv",
+        mime="text/csv",
+        key="dl_rank_a",
+    )
+
+    st.download_button(
+        "Download Ranking B - Points (CSV, Excel-safe)",
+        data=rank_b.to_csv(index=False).encode("utf-8-sig"),
+        file_name="ranking_b_points.csv",
+        mime="text/csv",
+        key="dl_rank_b",
+    )
+
+    # ✅ One XLSX file (best for Excel)
+    st.download_button(
+        "Download ALL tables (XLSX)",
+        data=xlsx_bytes,
+        file_name="badminton_tables.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_xlsx",
+    )
+
+    # Share text
+    st.divider()
+    st.subheader("📋 Итоги для чата")
+
+    st.write("Кликни в поле → Ctrl+A → Ctrl+C (и вставляй в WhatsApp/Telegram).")
+    st.text_area("Готовый текст", value=share_text, height=260, key="share_text_area")
+
+    st.download_button(
+        "⬇️ Скачать итоги (.txt)",
+        data=share_text.encode("utf-8"),
+        file_name="badminton_results.txt",
+        mime="text/plain",
+        key="dl_txt",
+    )
+
+    st.info("Если Place выглядит как `3–4`, значит место делится (личной встречи не было или равных больше двух).")
+else:
+    st.info("Вставь список пар и результаты, затем нажми «Посчитать турнир».")
