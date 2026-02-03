@@ -10,14 +10,13 @@ TZ = ZoneInfo("Europe/Tallinn")
 
 # -------------------- Custom Effects (Shuttle Rain) --------------------
 def rain_shuttles():
-    # Генерируем CSS/HTML для падающих воланчиков
     shuttles_html = ""
-    for _ in range(25): # Количество воланчиков
+    for _ in range(25): 
         left = random.randint(1, 99)
-        duration = random.uniform(3, 7) # Скорость падения
+        duration = random.uniform(3, 7) 
         delay = random.uniform(0, 2)
-        size = random.uniform(1.2, 2.0) # Размер (небольшой)
-        opacity = random.uniform(0.3, 0.7) # Полупрозрачность
+        size = random.uniform(1.2, 2.0) 
+        opacity = random.uniform(0.3, 0.7) 
         
         shuttles_html += f"""
         <div style="
@@ -43,12 +42,14 @@ def rain_shuttles():
     {shuttles_html}
     """, unsafe_allow_html=True)
 
-# -------------------- Session State (for Demo Button) --------------------
-if 'input_text' not in st.session_state:
-    st.session_state.input_text = ""
+# -------------------- Session State & Demo Logic --------------------
+# Инициализируем состояние текстового поля, если его еще нет
+if "input_text_area" not in st.session_state:
+    st.session_state.input_text_area = ""
 
+# Функция, которая обновляет напрямую ключ виджета
 def load_demo():
-    st.session_state.input_text = (
+    st.session_state.input_text_area = (
         "1. Maksim + Stas\n"
         "2. Oksana + Mikhail\n"
         "3. Maria + Alexey\n"
@@ -68,11 +69,10 @@ def parse_pairs(raw: str):
         pairs.append(ln)
     return pairs
 
-
 # -------------------- Core scheduling --------------------
 @dataclass(frozen=True)
 class Match:
-    a: int  # 0-based rank index
+    a: int
     b: int
     forced_repeat_early: bool = False
 
@@ -86,14 +86,12 @@ def build_one_round(n_pairs, courts, used_counts, round_index, rounds_total, max
     allowed_total_per_matchup = 1 + max_repeat_per_matchup
     in_tail = round_index >= max(0, rounds_total - repeat_tail_rounds)
 
-    # Stage A: repeats allowed only if in tail
     matches = try_build_round(
         n_pairs, courts, used_counts, max_gap, allowed_total_per_matchup,
         allow_repeats=in_tail, mark_forced_repeat_early=False
     )
     if matches: return matches
 
-    # Stage B: forced repeats
     if not in_tail:
         matches = try_build_round(
             n_pairs, courts, used_counts, max_gap, allowed_total_per_matchup,
@@ -128,10 +126,8 @@ def try_build_round(n_pairs, courts, used_counts, max_gap, allowed_total_per_mat
 
         while len(matches) < courts:
             if len(remaining) < 2: break
-            
             candidates_a = list(remaining)
             random.shuffle(candidates_a)
-            
             best_a, best_a_opts, best_a_len = None, None, None
             for a in candidates_a:
                 opts = eligible_opponents(a, remaining - {a})
@@ -139,26 +135,18 @@ def try_build_round(n_pairs, courts, used_counts, max_gap, allowed_total_per_mat
                 if best_a_len is None or len(opts) < best_a_len:
                     best_a, best_a_opts, best_a_len = a, opts, len(opts)
                     if best_a_len == 1: break
-            
             if best_a is None: break
-            
             a = best_a
             opts = best_a_opts
-            
-            # Random logic
             random.shuffle(opts)
-            
             best_b, best_local, best_is_repeat = None, None, None
             for b, is_repeat in opts:
                 local = 0
                 if is_repeat: local += 1000
                 local += random.random()
-                
                 if best_local is None or local < best_local:
                     best_local, best_b, best_is_repeat = local, b, is_repeat
-            
             if best_b is None: break
-            
             remaining.remove(a)
             remaining.remove(best_b)
             matches.append(Match(a, best_b, mark_forced_repeat_early and best_is_repeat == 1))
@@ -205,82 +193,51 @@ st.set_page_config(page_title="Shuttle Shuffle", page_icon="🏸", layout="cente
 
 st.markdown("""
 <style>
-    /* Global Clean Dark Theme */
     :root { --accent: #E6FF2A; --bg-dark: #0b0f14; --panel: #111827; }
-    
     body, .stApp { background-color: var(--bg-dark); color: #F2F6FF; }
     h1, h2, h3, .stMarkdown { color: #F8FAFF; }
-    
-    /* Input Fields */
     .stTextArea textarea, .stNumberInput input, .stTextInput input {
-        background: var(--panel) !important;
-        color: white !important;
-        border: 1px solid #243043 !important;
+        background: var(--panel) !important; color: white !important; border: 1px solid #243043 !important;
     }
-    
-    /* Huge Primary Button */
     div.stButton > button:first-child {
-        background: var(--accent) !important;
-        color: black !important;
-        font-size: 20px !important;
-        font-weight: 800 !important;
-        padding: 0.75rem 1rem !important;
-        border-radius: 12px !important;
-        border: none !important;
-        width: 100%;
-        text-transform: uppercase;
-        margin-top: 10px;
+        background: var(--accent) !important; color: black !important;
+        font-size: 20px !important; font-weight: 800 !important;
+        padding: 0.75rem 1rem !important; border-radius: 12px !important;
+        border: none !important; width: 100%; text-transform: uppercase; margin-top: 10px;
     }
-    div.stButton > button:first-child:hover {
-        opacity: 0.9;
-        transform: scale(1.01);
-    }
-
-    /* Small Helper Button (Demo) */
+    div.stButton > button:first-child:hover { opacity: 0.9; transform: scale(1.01); }
     div[data-testid="stVerticalBlock"] > div > div[data-testid="stHorizontalBlock"] button {
-        background: #243043 !important;
-        color: white !important;
-        font-size: 14px !important;
-        width: auto !important;
+        background: #243043 !important; color: white !important; font-size: 14px !important; width: auto !important;
     }
-
-    /* Code Block & Expander */
     div[data-testid="stCodeBlock"] pre { background-color: var(--panel) !important; border-radius: 10px; }
     .streamlit-expanderHeader { background-color: var(--panel) !important; color: white !important; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Header ---
 st.title('Shuttle Shuffle 🏸')
 st.caption('Badminton Game Scheduler')
 
-# --- Inputs ---
 col_in1, col_in2 = st.columns([3, 1])
 with col_in2:
-    st.write("") # Spacer
     st.write("") 
-    if st.button("Load Demo List"):
-        load_demo()
+    st.write("") 
+    # Кнопка теперь использует callback on_click
+    st.button("Load Demo List", on_click=load_demo)
 
 with col_in1:
+    # Важно: ключ key="input_text_area" совпадает с тем, что мы обновляем в load_demo
     raw = st.text_area(
         "Paste pair list (1 line = 1 pair).\nSort by rank if applicable (1 = Strongest ↓)",
-        value=st.session_state.input_text,
         height=180,
         key="input_text_area",
         placeholder="1. Maksim + Stas\n2. Oksana + Mikhail..."
     )
 
-# --- Main Settings (Visible) ---
 c1, c2, c3 = st.columns(3)
-with c1:
-    courts = st.number_input("Courts", 1, 20, 1)
-with c2:
-    rounds = st.number_input("Rounds", 1, 30, 1)
-with c3:
-    max_gap = st.number_input("Max Rank Gap", 1, 50, 10)
+with c1: courts = st.number_input("Courts", 1, 20, 1)
+with c2: rounds = st.number_input("Rounds", 1, 30, 1)
+with c3: max_gap = st.number_input("Max Rank Gap", 1, 50, 10)
 
-# --- Advanced Settings (Hidden) ---
 with st.expander("⚙️ Advanced Settings"):
     ac1, ac2 = st.columns(2)
     with ac1:
@@ -291,50 +248,36 @@ with st.expander("⚙️ Advanced Settings"):
         tail_rounds = st.number_input("Tail Rounds", 0, 10, 2)
         seed = st.number_input("Random Seed (0 = Random)", 0, 999999, 0)
 
-# --- Action ---
 if st.button("SHUTTLE SHUFFLE 🚀"):
-    pairs = parse_pairs(st.session_state.input_text_area) # Read from state/area
-    
+    pairs = parse_pairs(raw) # Читаем напрямую из виджета
     if len(pairs) < 2:
         st.error("⚠️ Need at least 2 pairs to play!")
     else:
-        # Seed logic
         if seed != 0: random.seed(int(seed))
-        
-        # Time parsing
         try:
             hh, mm = start_time_str.strip().split(":")
             start_t = dtime(int(hh), int(mm))
         except:
             start_t = datetime.now(TZ).time().replace(second=0)
-        
         start_dt = datetime.now(TZ).replace(hour=start_t.hour, minute=start_t.minute, second=0)
 
-        # Spinner & Magic
         with st.spinner("Shuffling players..."):
             rounds_actual, sched, used_counts, forced_early = schedule_session(
                 len(pairs), int(courts), int(rounds), int(max_gap), int(max_repeats), int(tail_rounds)
             )
 
-        # Output
         if rounds_actual == 0:
             st.error("❌ Impossible to generate schedule. Try increasing Gap or reducing Courts.")
         else:
-            rain_shuttles() # <--- ВАУ ЭФФЕКТ ТУТ
-
+            rain_shuttles()
             if rounds_actual < int(rounds):
                 st.warning(f"⚠️ Reduced to {rounds_actual} rounds to avoid conflicts.")
             
-            # Format text
             out_text = format_schedule(pairs, sched, start_dt, int(round_minutes), int(courts))
-
-            # --- Results Area ---
             st.success(f"✅ Generated {rounds_actual} rounds!")
             
             tab1, tab2 = st.tabs(["📱 Display", "📋 Copy Text"])
-            
             with tab1:
-                # Beautiful card view
                 for r_idx, round_matches in enumerate(sched):
                     t = start_dt + timedelta(minutes=int(round_minutes) * r_idx)
                     with st.container():
@@ -345,6 +288,5 @@ if st.button("SHUTTLE SHUFFLE 🚀"):
                             warn = "⚠️" if m.forced_repeat_early else ""
                             st.info(f"**{p1}** vs  **{p2}** {warn}")
                         st.divider()
-
             with tab2:
                 st.text_area("Copy for Chat:", value=out_text, height=300)
