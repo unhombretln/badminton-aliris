@@ -10,30 +10,38 @@ TZ = ZoneInfo("Europe/Tallinn")
 
 # -------------------- Custom Effects (Shuttle Rain) --------------------
 def rain_shuttles():
+    # Генерируем HTML для падающих воланчиков
     shuttles_html = ""
-    for _ in range(25): 
+    for _ in range(25): # Количество воланчиков
         left = random.randint(1, 99)
-        duration = random.uniform(3, 7) 
+        duration = random.uniform(3, 7) # Скорость падения
         delay = random.uniform(0, 2)
-        size = random.uniform(1.2, 2.0) 
-        opacity = random.uniform(0.3, 0.7) 
+        size = random.uniform(1.2, 2.0) # Размер
+        opacity = random.uniform(0.3, 0.7) # Прозрачность
         
+        # Собираем строку с div-ами
         shuttles_html += f"""
-        <div style="
-            position: fixed;
+        <div class="falling-shuttle" style="
             left: {left}%;
-            top: -10vh;
             font-size: {size}rem;
             opacity: {opacity};
-            animation: fall {duration}s linear forwards;
+            animation-duration: {duration}s;
             animation-delay: {delay}s;
-            z-index: 9999;
-            pointer-events: none;
         ">🏸</div>
         """
     
+    # Вставляем CSS и HTML одной командой с флагом unsafe_allow_html=True
     st.markdown(f"""
     <style>
+        .falling-shuttle {{
+            position: fixed;
+            top: -10vh;
+            z-index: 9999;
+            pointer-events: none;
+            animation-name: fall;
+            animation-timing-function: linear;
+            animation-fill-mode: forwards;
+        }}
         @keyframes fall {{
             0% {{ transform: translateY(-10vh) rotate(0deg); }}
             100% {{ transform: translateY(110vh) rotate(360deg); }}
@@ -43,22 +51,27 @@ def rain_shuttles():
     """, unsafe_allow_html=True)
 
 # -------------------- Session State & Demo Logic --------------------
-# Инициализируем состояние текстового поля, если его еще нет
 if "input_text_area" not in st.session_state:
     st.session_state.input_text_area = ""
 
-# Функция, которая обновляет напрямую ключ виджета
 def load_demo():
-    st.session_state.input_text_area = (
-        "1. Maksim + Stas\n"
-        "2. Oksana + Mikhail\n"
-        "3. Maria + Alexey\n"
-        "4. Alla + Ilya\n"
-        "5. Maria + Andre\n"
-        "6. Inna + Andrey\n"
-        "7. Iris + Piyush\n"
-        "8. Nika + Aulis"
-    )
+    # Список нейтральных имен для генерации
+    names = [
+        "Alex", "Jordan", "Casey", "Taylor", "Jamie", "Morgan", 
+        "Riley", "Chris", "Pat", "Drew", "Avery", "Cameron", 
+        "Quinn", "Kim", "Lee", "Sam", "Charlie", "Dakota", 
+        "Reese", "Parker", "Skyler", "Sage", "River", "Phoenix"
+    ]
+    random.shuffle(names) # Перемешиваем имена
+    
+    # Создаем 8 пар из первых 16 имен
+    demo_lines = []
+    for i in range(8):
+        p1 = names[i*2]
+        p2 = names[i*2+1]
+        demo_lines.append(f"{i+1}. {p1} + {p2}")
+    
+    st.session_state.input_text_area = "\n".join(demo_lines)
 
 # -------------------- Parsing --------------------
 def parse_pairs(raw: str):
@@ -221,11 +234,9 @@ col_in1, col_in2 = st.columns([3, 1])
 with col_in2:
     st.write("") 
     st.write("") 
-    # Кнопка теперь использует callback on_click
     st.button("Load Demo List", on_click=load_demo)
 
 with col_in1:
-    # Важно: ключ key="input_text_area" совпадает с тем, что мы обновляем в load_demo
     raw = st.text_area(
         "Paste pair list (1 line = 1 pair).\nSort by rank if applicable (1 = Strongest ↓)",
         height=180,
@@ -249,7 +260,7 @@ with st.expander("⚙️ Advanced Settings"):
         seed = st.number_input("Random Seed (0 = Random)", 0, 999999, 0)
 
 if st.button("SHUTTLE SHUFFLE 🚀"):
-    pairs = parse_pairs(raw) # Читаем напрямую из виджета
+    pairs = parse_pairs(raw)
     if len(pairs) < 2:
         st.error("⚠️ Need at least 2 pairs to play!")
     else:
@@ -270,6 +281,7 @@ if st.button("SHUTTLE SHUFFLE 🚀"):
             st.error("❌ Impossible to generate schedule. Try increasing Gap or reducing Courts.")
         else:
             rain_shuttles()
+            
             if rounds_actual < int(rounds):
                 st.warning(f"⚠️ Reduced to {rounds_actual} rounds to avoid conflicts.")
             
