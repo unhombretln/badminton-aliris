@@ -8,12 +8,12 @@ import textwrap
 # -------------------- Custom Effects (Shuttle Rain) --------------------
 def rain_shuttles():
     shuttles_html = ""
-    for _ in range(25):  # количество воланчиков
+    for _ in range(25):
         left = random.randint(1, 99)
-        duration = random.uniform(3, 7)  # скорость падения
+        duration = random.uniform(3, 7)
         delay = random.uniform(0, 2)
-        size = random.uniform(1.2, 2.0)  # размер
-        opacity = random.uniform(0.3, 0.7)  # прозрачность
+        size = random.uniform(1.2, 2.0)
+        opacity = random.uniform(0.35, 0.75)
 
         shuttles_html += f"""
 <div class="falling-shuttle" style="
@@ -36,7 +36,6 @@ def rain_shuttles():
   animation-timing-function: linear;
   animation-fill-mode: forwards;
 }}
-
 @keyframes fall {{
   0%   {{ transform: translateY(-10vh) rotate(0deg); }}
   100% {{ transform: translateY(110vh) rotate(360deg); }}
@@ -59,13 +58,11 @@ def load_demo():
         "Reese", "Parker", "Skyler", "Sage", "River", "Phoenix"
     ]
     random.shuffle(names)
-
     demo_lines = []
     for i in range(8):
         p1 = names[i * 2]
         p2 = names[i * 2 + 1]
         demo_lines.append(f"{i+1}. {p1} + {p2}")
-
     st.session_state.input_text_area = "\n".join(demo_lines)
 
 # -------------------- Parsing --------------------
@@ -171,11 +168,10 @@ def try_build_round(
 
             best_b, best_local, best_is_repeat = None, None, None
             for b, is_repeat in opts:
-                # Рандом + большой штраф за повтор (чтобы повторы были последним средством)
                 local = 0.0
                 if is_repeat:
                     local += 1000.0
-                local += random.random()  # "перемешивание" соперников (не по порядку)
+                local += random.random()  # чуть рандома, чтобы не шло "по порядку"
                 if best_local is None or local < best_local:
                     best_local, best_b, best_is_repeat = local, b, is_repeat
 
@@ -240,15 +236,24 @@ st.set_page_config(page_title="Shuttle Shuffle", page_icon="🏸", layout="cente
 st.markdown("""
 <style>
     :root { --accent: #E6FF2A; --bg-dark: #0b0f14; --panel: #111827; }
-    body, .stApp { background-color: var(--bg-dark); color: #F2F6FF; }
-    h1, h2, h3, .stMarkdown { color: #F8FAFF; }
 
+    /* Base text */
+    html, body, .stApp, p, span, li, label, div {
+      color: #F2F6FF !important;
+    }
+
+    body, .stApp {
+      background-color: var(--bg-dark);
+    }
+
+    /* Inputs */
     .stTextArea textarea, .stNumberInput input, .stTextInput input {
         background: var(--panel) !important;
-        color: white !important;
+        color: #F2F6FF !important;
         border: 1px solid #243043 !important;
     }
 
+    /* Main action button */
     div.stButton > button:first-child {
         background: var(--accent) !important;
         color: black !important;
@@ -261,15 +266,44 @@ st.markdown("""
         text-transform: uppercase;
         margin-top: 10px;
     }
-    div.stButton > button:first-child:hover { opacity: 0.9; transform: scale(1.01); }
+    div.stButton > button:first-child:hover { opacity: 0.92; transform: scale(1.01); }
 
-    div[data-testid="stVerticalBlock"] > div > div[data-testid="stHorizontalBlock"] button {
-        background: #243043 !important; color: white !important; font-size: 14px !important; width: auto !important;
+    /* Code block (copy area) */
+    div[data-testid="stCodeBlock"] pre {
+      background-color: var(--panel) !important;
+      border-radius: 12px;
+      border: 1px solid rgba(230,255,42,0.15);
     }
 
-    div[data-testid="stCodeBlock"] pre { background-color: var(--panel) !important; border-radius: 10px; }
+    /* Expander */
+    .streamlit-expanderHeader {
+      background-color: var(--panel) !important;
+      color: #F2F6FF !important;
+      border-radius: 12px;
+      border: 1px solid rgba(230,255,42,0.10);
+    }
 
-    .streamlit-expanderHeader { background-color: var(--panel) !important; color: white !important; border-radius: 10px; }
+    /* Match card (replaces st.info) */
+    .match-card{
+      background: rgba(17,24,39,0.92);
+      border: 1px solid rgba(230,255,42,0.18);
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin: 10px 0;
+      font-size: 16px;
+      line-height: 1.35;
+    }
+    .match-card .vs { color: rgba(242,246,255,0.85); font-weight: 600; }
+    .match-card .warn { color: #E6FF2A; font-weight: 900; padding-left: 6px; }
+    .muted { color: rgba(242,246,255,0.70) !important; }
+
+    /* Alerts look calmer */
+    div[data-testid="stAlert"] {
+      background: rgba(17,24,39,0.92) !important;
+      border: 1px solid rgba(230,255,42,0.18) !important;
+      border-radius: 14px !important;
+    }
+    div[data-testid="stAlert"] p { color: #F2F6FF !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -301,7 +335,7 @@ with c3:
 with st.expander("⚙️ Advanced Settings"):
     ac1, ac2 = st.columns(2)
     with ac1:
-        round_minutes = st.number_input("Minutes / Round (for your planning only)", 5, 90, 12)
+        round_minutes = st.number_input("Minutes / Round (planning only)", 5, 90, 12)
     with ac2:
         max_repeats = st.number_input("Max Repeats", 0, 5, 1)
         tail_rounds = st.number_input("Tail Rounds", 0, 10, 2)
@@ -309,6 +343,7 @@ with st.expander("⚙️ Advanced Settings"):
 
 if st.button("SHUTTLE SHUFFLE 🚀"):
     pairs = parse_pairs(raw)
+
     if len(pairs) < 2:
         st.error("⚠️ Need at least 2 pairs to play!")
     else:
@@ -331,17 +366,33 @@ if st.button("SHUTTLE SHUFFLE 🚀"):
             out_text = format_schedule(pairs, sched, int(courts))
             st.success(f"✅ Generated {rounds_actual} rounds!")
 
-            tab1, tab2 = st.tabs(["📱 Display", "📋 Copy Text"])
-            with tab1:
-                for r_idx, round_matches in enumerate(sched):
-                    with st.container():
-                        st.markdown(f"#### 🏸 Tour {r_idx+1}", unsafe_allow_html=True)
-                        for m in sorted(round_matches, key=lambda x: (x.a + x.b)):
-                            p1 = pairs[m.a]
-                            p2 = pairs[m.b]
-                            warn = "⚠️" if m.forced_repeat_early else ""
-                            st.info(f"**{p1}** vs  **{p2}** {warn}")
-                        st.divider()
+            # --- Results (clean, readable) ---
+            st.markdown("## 📱 Results")
 
-            with tab2:
-                st.text_area("Copy for Chat:", value=out_text, height=300)
+            for r_idx, round_matches in enumerate(sched):
+                st.markdown(f"### 🏸 Tour {r_idx+1}")
+
+                # stable order inside round
+                for m in sorted(round_matches, key=lambda x: (x.a + x.b)):
+                    p1 = pairs[m.a]
+                    p2 = pairs[m.b]
+                    warn = "⚠️" if m.forced_repeat_early else ""
+                    warn_html = f"<span class='warn'>{warn}</span>" if warn else ""
+                    st.markdown(
+                        f"<div class='match-card'><b>{p1}</b> <span class='vs'>vs</span> <b>{p2}</b>{warn_html}</div>",
+                        unsafe_allow_html=True
+                    )
+
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+            st.divider()
+
+            # --- Copy always visible (no more “where is copy?”) ---
+            st.markdown("<div id='copy'></div>", unsafe_allow_html=True)
+            st.markdown("## 📋 Copy for WhatsApp / Telegram")
+            st.markdown("<p class='muted'>Tip: use the code box copy icon or select text from the area below.</p>", unsafe_allow_html=True)
+
+            st.text_area("Copy text:", value=out_text, height=260, key="copy_text_area")
+
+            # Optional: code block (often shows copy icon)
+            st.code(out_text, language=None)
