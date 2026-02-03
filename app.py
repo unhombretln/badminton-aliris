@@ -1,17 +1,12 @@
 import streamlit as st
 from dataclasses import dataclass
-from datetime import datetime, timedelta, time as dtime
-from zoneinfo import ZoneInfo
 from collections import defaultdict
 import random
 import re
 import textwrap
 
-TZ = ZoneInfo("Europe/Tallinn")
-
 # -------------------- Custom Effects (Shuttle Rain) --------------------
 def rain_shuttles():
-    # Генерируем HTML для падающих воланчиков
     shuttles_html = ""
     for _ in range(25):  # количество воланчиков
         left = random.randint(1, 99)
@@ -49,7 +44,6 @@ def rain_shuttles():
 </style>
 {shuttles_html}
 """
-    # ВАЖНО: dedent убирает ведущие отступы, иначе Markdown делает из HTML код-блок
     st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
 
 
@@ -117,7 +111,16 @@ def build_one_round(n_pairs, courts, used_counts, round_index, rounds_total, max
 
     return None
 
-def try_build_round(n_pairs, courts, used_counts, max_gap, allowed_total_per_matchup, allow_repeats, mark_forced_repeat_early, tries=300):
+def try_build_round(
+    n_pairs,
+    courts,
+    used_counts,
+    max_gap,
+    allowed_total_per_matchup,
+    allow_repeats,
+    mark_forced_repeat_early,
+    tries=300
+):
     all_pairs = list(range(n_pairs))
 
     def eligible_opponents(a, remaining_set):
@@ -168,10 +171,11 @@ def try_build_round(n_pairs, courts, used_counts, max_gap, allowed_total_per_mat
 
             best_b, best_local, best_is_repeat = None, None, None
             for b, is_repeat in opts:
+                # Рандом + большой штраф за повтор (чтобы повторы были последним средством)
                 local = 0.0
                 if is_repeat:
                     local += 1000.0
-                local += random.random()  # добавляем чуть рандома, чтобы не было "по порядку"
+                local += random.random()  # "перемешивание" соперников (не по порядку)
                 if best_local is None or local < best_local:
                     best_local, best_b, best_is_repeat = local, b, is_repeat
 
@@ -218,11 +222,10 @@ def schedule_session(n_pairs, courts, rounds_requested, max_gap, max_repeat_per_
 
     return 0, [], defaultdict(int), 0
 
-def format_schedule(pairs, sched, start_dt, round_minutes, courts):
+def format_schedule(pairs, sched, courts):
     lines = []
     for r, matches in enumerate(sched, start=1):
-        t = start_dt + timedelta(minutes=round_minutes * (r - 1))
-        lines.append(f"🏸 Tour {r} — {t.strftime('%H:%M')}")
+        lines.append(f"🏸 Tour {r}")
         matches_sorted = sorted(matches, key=lambda m: (m.a + m.b) / 2)
         for ci in range(courts):
             m = matches_sorted[ci]
@@ -265,6 +268,7 @@ st.markdown("""
     }
 
     div[data-testid="stCodeBlock"] pre { background-color: var(--panel) !important; border-radius: 10px; }
+
     .streamlit-expanderHeader { background-color: var(--panel) !important; color: white !important; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
@@ -297,8 +301,7 @@ with c3:
 with st.expander("⚙️ Advanced Settings"):
     ac1, ac2 = st.columns(2)
     with ac1:
-        start_time_str = st.text_input("Start Time (HH:MM)", value=datetime.now(TZ).strftime("%H:%M"))
-        round_minutes = st.number_input("Minutes / Round", 5, 90, 12)
+        round_minutes = st.number_input("Minutes / Round (for your planning only)", 5, 90, 12)
     with ac2:
         max_repeats = st.number_input("Max Repeats", 0, 5, 1)
         tail_rounds = st.number_input("Tail Rounds", 0, 10, 2)
@@ -312,14 +315,6 @@ if st.button("SHUTTLE SHUFFLE 🚀"):
         if seed != 0:
             random.seed(int(seed))
 
-        try:
-            hh, mm = start_time_str.strip().split(":")
-            start_t = dtime(int(hh), int(mm))
-        except Exception:
-            start_t = datetime.now(TZ).time().replace(second=0)
-
-        start_dt = datetime.now(TZ).replace(hour=start_t.hour, minute=start_t.minute, second=0)
-
         with st.spinner("Shuffling players..."):
             rounds_actual, sched, used_counts, forced_early = schedule_session(
                 len(pairs), int(courts), int(rounds), int(max_gap), int(max_repeats), int(tail_rounds)
@@ -328,24 +323,19 @@ if st.button("SHUTTLE SHUFFLE 🚀"):
         if rounds_actual == 0:
             st.error("❌ Impossible to generate schedule. Try increasing Gap or reducing Courts.")
         else:
-            # эффект запускаем ПОСЛЕ успешной генерации (или можно внутри spinner, если хотите)
             rain_shuttles()
 
             if rounds_actual < int(rounds):
                 st.warning(f"⚠️ Reduced to {rounds_actual} rounds to avoid conflicts.")
 
-            out_text = format_schedule(pairs, sched, start_dt, int(round_minutes), int(courts))
+            out_text = format_schedule(pairs, sched, int(courts))
             st.success(f"✅ Generated {rounds_actual} rounds!")
 
             tab1, tab2 = st.tabs(["📱 Display", "📋 Copy Text"])
             with tab1:
                 for r_idx, round_matches in enumerate(sched):
-                    t = start_dt + timedelta(minutes=int(round_minutes) * r_idx)
                     with st.container():
-                        st.markdown(
-                            f"#### 🏸 Tour {r_idx+1} <span style='color:#888; font-size:0.8em'>({t.strftime('%H:%M')})</span>",
-                            unsafe_allow_html=True
-                        )
+                        st.markdown(f"#### 🏸 Tour {r_idx+1}", unsafe_allow_html=True)
                         for m in sorted(round_matches, key=lambda x: (x.a + x.b)):
                             p1 = pairs[m.a]
                             p2 = pairs[m.b]
