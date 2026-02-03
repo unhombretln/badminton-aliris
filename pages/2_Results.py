@@ -14,7 +14,7 @@ st.subheader("Список пар (один раз на турнир)")
 teams_text = st.text_area(
     "Формат: номер + имя пары (по одной строке)",
     height=220,
-    placeholder="1 Максим и Стас\n2 Оксана и Михаил\n3 Мария и Алексей\n..."
+    placeholder="1 Максим Щ и Стас Щ\n2 Оксана и Михаил К\n3 Мария и Алексей Т\n..."
 )
 
 def parse_teams(text: str) -> dict[int, str]:
@@ -42,7 +42,11 @@ st.subheader("Результаты матчей")
 st.markdown(
     """
 **Формат ввода:**
-Матч до 21 (максимум 21:20 / 20:21).
+
+Строка матча: `A x-y B`  
+- A и B — номера пар  
+- x и y — очки (любой формат игры допустим: 21/15/BWF/гибрид и т.д.)  
+- Проверяем только здравый смысл и опечатки (например, 211-19)
 """
 )
 
@@ -55,16 +59,16 @@ results_text = st.text_area(
 match_re = re.compile(r"^\s*(\d+)\s+(\d+)\s*-\s*(\d+)\s+(\d+)\s*$")
 game_re = re.compile(r"^\s*Game\s+(\d+)\s*$", re.IGNORECASE)
 
-def validate_score(a: int, b: int):
+# ✅ Relaxed validation: only sanity checks + typo guard
+MAX_POINTS_GUARD = 60
+
+def validate_score_relaxed(a: int, b: int):
     if a == b:
         return "ничья невозможна"
-    mx, mn = max(a, b), min(a, b)
-    if mx != 21:
-        return "максимум должен быть 21"
-    if mn > 20:
-        return "минимум не может быть больше 20"
     if a < 0 or b < 0:
         return "очки не могут быть отрицательными"
+    if max(a, b) > MAX_POINTS_GUARD:
+        return f"слишком большое число (> {MAX_POINTS_GUARD}) — похоже на опечатку"
     return None
 
 def pair_key(a: int, b: int) -> tuple[int, int]:
@@ -96,7 +100,7 @@ def parse_matches(text: str):
             errors.append(f"Строка {i}: одинаковые номера команд ({a})")
             continue
 
-        err = validate_score(sa, sb)
+        err = validate_score_relaxed(sa, sb)
         if err:
             errors.append(f"Строка {i}: счёт {sa}-{sb} некорректен ({err})")
             continue
@@ -152,7 +156,7 @@ def compute_stats(matches_df: pd.DataFrame):
             stats[b]["Wins"] += 1
             stats[a]["Losses"] += 1
 
-        # личная встреча (если несколько — берём последнюю запись)
+        # личная встреча: если встречались несколько раз — берём последнюю запись
         h2h_winner[pair_key(a, b)] = w
 
     stats_df = pd.DataFrame(stats.values()).sort_values("Team")
@@ -161,6 +165,12 @@ def compute_stats(matches_df: pd.DataFrame):
     return stats_df, h2h_winner
 
 def apply_h2h_tiebreak(sorted_rows: list[dict], h2h_winner: dict, keys: list[str]) -> list[dict]:
+    """
+    Если группа равных по keys:
+      - если 2 пары и была личная встреча → победитель выше, PlaceShared=False
+      - если личной встречи нет → PlaceShared=True (место делится)
+      - если 3+ пары → PlaceShared=True (делим место)
+    """
     out = []
     i = 0
     n = len(sorted_rows)
@@ -177,7 +187,6 @@ def apply_h2h_tiebreak(sorted_rows: list[dict], h2h_winner: dict, keys: list[str
             t2 = group[1]["Team"]
             w = h2h_winner.get(pair_key(t1, t2))
             if w is not None:
-                # победитель выше
                 if group[0]["Team"] != w:
                     group = [group[1], group[0]]
                 group[0]["PlaceShared"] = False
@@ -195,6 +204,11 @@ def apply_h2h_tiebreak(sorted_rows: list[dict], h2h_winner: dict, keys: list[str
     return out
 
 def assign_places_with_ranges(rows: list[dict], key_cols: list[str]) -> list[dict]:
+    """
+    PlaceDisplay:
+      - "3" если место уникальное
+      - "3–4" если место делится
+    """
     place = 1
     i = 0
     n = len(rows)
@@ -247,7 +261,7 @@ def make_ranking(stats_df: pd.DataFrame, h2h_winner: dict, mode: str) -> pd.Data
 
     out_df = pd.DataFrame(rows)
 
-    # финальные колонки: Place справа
+    # Place справа
     out_df = out_df[["Pair", "Games", "Wins", "Losses", "PF", "PA", "DIFF", "PlaceDisplay"]]
     out_df = out_df.rename(columns={"PlaceDisplay": "Place"})
     out_df.attrs["title"] = title
@@ -303,6 +317,28 @@ def style_ranking(df: pd.DataFrame):
           .format({"DIFF": "{:+d}"})
     )
 
+def build_share_text(rank_a: pd.DataFrame, rank_b: pd.DataFrame) -> str:
+    def medal_for(place: str) -> str:
+        p = place.split("–")[0].strip()
+        return "🥇 " if p == "1" else "🥈 " if p == "2" else "🥉 " if p == "3" else ""
+
+    def fmt(df: pd.DataFrame, title: str, top_n: int = 16) -> str:
+        lines = [title]
+        for _, r in df.head(top_n).iterrows():
+            place = str(r["Place"])
+            pair = str(r["Pair"])
+            wins = int(r["Wins"])
+            losses = int(r["Losses"])
+            pf = int(r["PF"])
+            pa = int(r["PA"])
+            diff = int(r["DIFF"])
+            lines.append(f"{medal_for(place)}{place}. {pair} — W{wins}-L{losses}, PF {pf}, PA {pa}, DIFF {diff:+d}")
+        return "\n".join(lines)
+
+    text_a = fmt(rank_a, "🏆 Ranking A (by Wins):")
+    text_b = fmt(rank_b, "🎯 Ranking B (by Points):")
+    return text_a + "\n\n" + text_b
+
 # =======================
 # BUTTON ACTION
 # =======================
@@ -329,10 +365,8 @@ if st.button("Посчитать турнир"):
 
         st.divider()
         st.subheader("Статистика по парам")
-        st.dataframe(
-            stats_df[["Team", "Pair", "Games", "Wins", "Losses", "PF", "PA", "DIFF"]].sort_values("Team"),
-            use_container_width=True
-        )
+        stats_view = stats_df[["Team", "Pair", "Games", "Wins", "Losses", "PF", "PA", "DIFF"]].sort_values("Team")
+        st.dataframe(stats_view, use_container_width=True)
 
         rank_a = make_ranking(stats_df, h2h_winner, mode="wins")
         rank_b = make_ranking(stats_df, h2h_winner, mode="points")
@@ -346,4 +380,51 @@ if st.button("Посчитать турнир"):
         st.caption(rank_b.attrs["caption"])
         st.dataframe(style_ranking(rank_b), use_container_width=True)
 
+        # =======================
+        # DOWNLOADS (CSV)
+        # =======================
+        st.divider()
+        st.subheader("⬇️ Скачать таблицы")
+
+        st.download_button(
+            "Download Stats (CSV)",
+            data=stats_view.to_csv(index=False).encode("utf-8"),
+            file_name="stats.csv",
+            mime="text/csv"
+        )
+
+        st.download_button(
+            "Download Ranking A - Wins (CSV)",
+            data=rank_a.to_csv(index=False).encode("utf-8"),
+            file_name="ranking_a_wins.csv",
+            mime="text/csv"
+        )
+
+        st.download_button(
+            "Download Ranking B - Points (CSV)",
+            data=rank_b.to_csv(index=False).encode("utf-8"),
+            file_name="ranking_b_points.csv",
+            mime="text/csv"
+        )
+
+        # =======================
+        # SHARE TEXT (copy/paste + txt)
+        # =======================
+        st.divider()
+        st.subheader("📋 Итоги для чата")
+
+        share_text = build_share_text(rank_a, rank_b)
+        st.write("Кликни в поле → Ctrl+A → Ctrl+C (и вставляй в WhatsApp/Telegram).")
+        st.text_area("Готовый текст", value=share_text, height=260)
+
+        st.download_button(
+            "⬇️ Скачать итоги (.txt)",
+            data=share_text.encode("utf-8"),
+            file_name="badminton_results.txt",
+            mime="text/plain"
+        )
+
         st.info("Если Place выглядит как `3–4`, значит место делится (личной встречи не было или равных больше двух).")
+
+    elif matches_df is not None and len(matches_df) > 0 and errors:
+        st.warning("Исправь ошибки выше — и пересчитаем.")
