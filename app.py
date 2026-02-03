@@ -8,6 +8,56 @@ import re
 
 TZ = ZoneInfo("Europe/Tallinn")
 
+# -------------------- Custom Effects (Shuttle Rain) --------------------
+def rain_shuttles():
+    # Генерируем CSS/HTML для падающих воланчиков
+    shuttles_html = ""
+    for _ in range(25): # Количество воланчиков
+        left = random.randint(1, 99)
+        duration = random.uniform(3, 7) # Скорость падения
+        delay = random.uniform(0, 2)
+        size = random.uniform(1.2, 2.0) # Размер (небольшой)
+        opacity = random.uniform(0.3, 0.7) # Полупрозрачность
+        
+        shuttles_html += f"""
+        <div style="
+            position: fixed;
+            left: {left}%;
+            top: -10vh;
+            font-size: {size}rem;
+            opacity: {opacity};
+            animation: fall {duration}s linear forwards;
+            animation-delay: {delay}s;
+            z-index: 9999;
+            pointer-events: none;
+        ">🏸</div>
+        """
+    
+    st.markdown(f"""
+    <style>
+        @keyframes fall {{
+            0% {{ transform: translateY(-10vh) rotate(0deg); }}
+            100% {{ transform: translateY(110vh) rotate(360deg); }}
+        }}
+    </style>
+    {shuttles_html}
+    """, unsafe_allow_html=True)
+
+# -------------------- Session State (for Demo Button) --------------------
+if 'input_text' not in st.session_state:
+    st.session_state.input_text = ""
+
+def load_demo():
+    st.session_state.input_text = (
+        "1. Maksim + Stas\n"
+        "2. Oksana + Mikhail\n"
+        "3. Maria + Alexey\n"
+        "4. Alla + Ilya\n"
+        "5. Maria + Andre\n"
+        "6. Inna + Andrey\n"
+        "7. Iris + Piyush\n"
+        "8. Nika + Aulis"
+    )
 
 # -------------------- Parsing --------------------
 def parse_pairs(raw: str):
@@ -24,107 +74,52 @@ def parse_pairs(raw: str):
 class Match:
     a: int  # 0-based rank index
     b: int
-    forced_repeat_early: bool = False  # repeat happened before tail window (only if unavoidable)
-
+    forced_repeat_early: bool = False
 
 def canonical(a: int, b: int):
     return (a, b) if a < b else (b, a)
 
-
 def gap(a: int, b: int) -> int:
     return abs(a - b)
 
-
-def build_one_round(
-    n_pairs: int,
-    courts: int,
-    used_counts: dict,
-    round_index: int,
-    rounds_total: int,
-    max_gap: int,
-    max_repeat_per_matchup: int,
-    repeat_tail_rounds: int,
-):
-    """
-    Returns: list[Match] of length == courts (or None if impossible)
-    Strategy:
-      - Always enforce max_gap.
-      - Prefer no repeats unless we are in the tail window.
-      - If not enough matches without repeats, allow repeats (still capped),
-        but mark them as forced if this round is before tail.
-    """
-
-    allowed_total_per_matchup = 1 + max_repeat_per_matchup  # first match + repeats
+def build_one_round(n_pairs, courts, used_counts, round_index, rounds_total, max_gap, max_repeat_per_matchup, repeat_tail_rounds):
+    allowed_total_per_matchup = 1 + max_repeat_per_matchup
     in_tail = round_index >= max(0, rounds_total - repeat_tail_rounds)
 
     # Stage A: repeats allowed only if in tail
     matches = try_build_round(
-        n_pairs=n_pairs,
-        courts=courts,
-        used_counts=used_counts,
-        max_gap=max_gap,
-        allowed_total_per_matchup=allowed_total_per_matchup,
-        allow_repeats=in_tail,
-        mark_forced_repeat_early=False,
+        n_pairs, courts, used_counts, max_gap, allowed_total_per_matchup,
+        allow_repeats=in_tail, mark_forced_repeat_early=False
     )
-    if matches is not None:
-        return matches
+    if matches: return matches
 
-    # Stage B: if not in tail and cannot fill without repeats, allow repeats (forced)
+    # Stage B: forced repeats
     if not in_tail:
         matches = try_build_round(
-            n_pairs=n_pairs,
-            courts=courts,
-            used_counts=used_counts,
-            max_gap=max_gap,
-            allowed_total_per_matchup=allowed_total_per_matchup,
-            allow_repeats=True,
-            mark_forced_repeat_early=True,
+            n_pairs, courts, used_counts, max_gap, allowed_total_per_matchup,
+            allow_repeats=True, mark_forced_repeat_early=True
         )
-        if matches is not None:
-            return matches
+        if matches: return matches
 
-    # Impossible even with repeats
     return None
 
-
-def try_build_round(
-    n_pairs: int,
-    courts: int,
-    used_counts: dict,
-    max_gap: int,
-    allowed_total_per_matchup: int,
-    allow_repeats: bool,
-    mark_forced_repeat_early: bool,
-    tries: int = 2000,
-):
-    """
-    Greedy with randomized retries.
-    Ensures:
-      - no pair plays twice in the same round
-      - max_gap always respected
-      - repeat count capped
-    """
+def try_build_round(n_pairs, courts, used_counts, max_gap, allowed_total_per_matchup, allow_repeats, mark_forced_repeat_early, tries=2000):
     all_pairs = list(range(n_pairs))
 
     def eligible_opponents(a, remaining_set):
         opts = []
         for b in remaining_set:
-            if b == a:
-                continue
-            if gap(a, b) > max_gap:
-                continue
+            if b == a: continue
+            if gap(a, b) > max_gap: continue
             key = canonical(a, b)
             cnt = used_counts.get(key, 0)
             if cnt == 0:
-                opts.append((b, 0))  # 0 means fresh
-            else:
-                if allow_repeats and cnt < allowed_total_per_matchup:
-                    opts.append((b, 1))  # 1 means repeat
+                opts.append((b, 0))
+            elif allow_repeats and cnt < allowed_total_per_matchup:
+                opts.append((b, 1))
         return opts
 
-    best = None
-    best_cost = None
+    best, best_cost = None, None
 
     for _ in range(tries):
         remaining = set(all_pairs)
@@ -132,315 +127,224 @@ def try_build_round(
         cost = 0
 
         while len(matches) < courts:
-            if len(remaining) < 2:
-                break
-
-            # Pick the "most constrained" player: fewest options
-            # (helps avoid dead ends)
+            if len(remaining) < 2: break
+            
             candidates_a = list(remaining)
             random.shuffle(candidates_a)
-
-            best_a = None
-            best_a_opts = None
-            best_a_len = None
-
+            
+            best_a, best_a_opts, best_a_len = None, None, None
             for a in candidates_a:
                 opts = eligible_opponents(a, remaining - {a})
-                if not opts:
-                    continue
+                if not opts: continue
                 if best_a_len is None or len(opts) < best_a_len:
-                    best_a = a
-                    best_a_opts = opts
-                    best_a_len = len(opts)
-                    if best_a_len == 1:
-                        break
-
-            if best_a is None:
-                break
-
+                    best_a, best_a_opts, best_a_len = a, opts, len(opts)
+                    if best_a_len == 1: break
+            
+            if best_a is None: break
+            
             a = best_a
             opts = best_a_opts
-
-            # --- RANDOM LOGIC ---
-            # Перемешиваем, чтобы не брать всегда ближайшего по рейтингу
+            
+            # Random logic
             random.shuffle(opts)
-
-            best_b = None
-            best_local = None
-            best_is_repeat = None
-
+            
+            best_b, best_local, best_is_repeat = None, None, None
             for b, is_repeat in opts:
-                # Стоимость теперь зависит только от того, повтор это или нет
                 local = 0
-                
-                if is_repeat:
-                    local += 1000  # repeats are expensive
-                
-                # Немного случайности для вариативности
+                if is_repeat: local += 1000
                 local += random.random()
-
+                
                 if best_local is None or local < best_local:
-                    best_local = local
-                    best_b = b
-                    best_is_repeat = is_repeat
-
-            if best_b is None:
-                break
-
+                    best_local, best_b, best_is_repeat = local, b, is_repeat
+            
+            if best_b is None: break
+            
             remaining.remove(a)
             remaining.remove(best_b)
-
-            matches.append(
-                Match(
-                    a=a,
-                    b=best_b,
-                    forced_repeat_early=(mark_forced_repeat_early and best_is_repeat == 1),
-                )
-            )
+            matches.append(Match(a, best_b, mark_forced_repeat_early and best_is_repeat == 1))
             cost += best_local
 
-        if len(matches) != courts:
-            continue
-
+        if len(matches) != courts: continue
         if best is None or cost < best_cost:
-            best = matches
-            best_cost = cost
-
-        # Early exit if we found a round with zero repeats and low cost
-        if best_cost is not None and best_cost <= courts * 10:
-            break
+            best, best_cost = matches, cost
+        if best_cost <= courts * 10: break
 
     return best
 
-
-def schedule_session(
-    n_pairs: int,
-    courts: int,
-    rounds_requested: int,
-    max_gap: int,
-    max_repeat_per_matchup: int,
-    repeat_tail_rounds: int,
-):
-    """
-    Try to generate schedule for rounds_requested.
-    If impossible, auto-reduce rounds until possible.
-
-    Returns:
-      rounds_actual, schedule(list[list[Match]]), used_counts, forced_early_repeats_count
-    """
+def schedule_session(n_pairs, courts, rounds_requested, max_gap, max_repeat_per_matchup, repeat_tail_rounds):
     for rounds_total in range(rounds_requested, 0, -1):
         used_counts = defaultdict(int)
-        sched = []
-        forced_early = 0
+        sched, forced_early = [], 0
         ok = True
-
         for r in range(rounds_total):
-            round_matches = build_one_round(
-                n_pairs=n_pairs,
-                courts=courts,
-                used_counts=used_counts,
-                round_index=r,
-                rounds_total=rounds_total,
-                max_gap=max_gap,
-                max_repeat_per_matchup=max_repeat_per_matchup,
-                repeat_tail_rounds=repeat_tail_rounds,
-            )
-
+            round_matches = build_one_round(n_pairs, courts, used_counts, r, rounds_total, max_gap, max_repeat_per_matchup, repeat_tail_rounds)
             if round_matches is None:
-                ok = False
-                break
-
-            # Commit matches into used_counts
+                ok = False; break
             for m in round_matches:
                 used_counts[canonical(m.a, m.b)] += 1
-                if m.forced_repeat_early:
-                    forced_early += 1
-
+                if m.forced_repeat_early: forced_early += 1
             sched.append(round_matches)
-
-        if ok:
-            return rounds_total, sched, used_counts, forced_early
-
-    # If even 1 round impossible (should only happen with very strict gap and tiny n)
+        if ok: return rounds_total, sched, used_counts, forced_early
     return 0, [], defaultdict(int), 0
 
-
-# -------------------- Formatting --------------------
 def format_schedule(pairs, sched, start_dt, round_minutes, courts):
     lines = []
     for r, matches in enumerate(sched, start=1):
         t = start_dt + timedelta(minutes=round_minutes * (r - 1))
-        lines.append(f"🏸 Tour {r} — {t.strftime('%Y-%m-%d %H:%M')} (Tallinn)")
-
-        # deterministic output: sort by average rank
+        lines.append(f"🏸 Tour {r} — {t.strftime('%H:%M')}")
         matches_sorted = sorted(matches, key=lambda m: (m.a + m.b) / 2)
-
         for ci in range(courts):
             m = matches_sorted[ci]
-            a_name = pairs[m.a]
-            b_name = pairs[m.b]
-            flag = " ⚠️(repeat)" if m.forced_repeat_early else ""
-            lines.append(f"  Court {ci+1}: {a_name}  vs  {b_name}{flag}")
-
+            flag = " ⚠️" if m.forced_repeat_early else ""
+            lines.append(f"  Court {ci+1}: {pairs[m.a]}  vs  {pairs[m.b]}{flag}")
         lines.append("")
-
     return "\n".join(lines).strip()
 
-
-# -------------------- UI --------------------
-# Настройка названия вкладки браузера
+# -------------------- UI & CSS --------------------
 st.set_page_config(page_title="Shuttle Shuffle", page_icon="🏸", layout="centered")
 
-st.markdown(
-    """
+st.markdown("""
 <style>
-:root { --accent: #E6FF2A; }
+    /* Global Clean Dark Theme */
+    :root { --accent: #E6FF2A; --bg-dark: #0b0f14; --panel: #111827; }
+    
+    body, .stApp { background-color: var(--bg-dark); color: #F2F6FF; }
+    h1, h2, h3, .stMarkdown { color: #F8FAFF; }
+    
+    /* Input Fields */
+    .stTextArea textarea, .stNumberInput input, .stTextInput input {
+        background: var(--panel) !important;
+        color: white !important;
+        border: 1px solid #243043 !important;
+    }
+    
+    /* Huge Primary Button */
+    div.stButton > button:first-child {
+        background: var(--accent) !important;
+        color: black !important;
+        font-size: 20px !important;
+        font-weight: 800 !important;
+        padding: 0.75rem 1rem !important;
+        border-radius: 12px !important;
+        border: none !important;
+        width: 100%;
+        text-transform: uppercase;
+        margin-top: 10px;
+    }
+    div.stButton > button:first-child:hover {
+        opacity: 0.9;
+        transform: scale(1.01);
+    }
 
-body, .stApp {
-  background-color: #0b0f14;
-  color: #F2F6FF;
-}
+    /* Small Helper Button (Demo) */
+    div[data-testid="stVerticalBlock"] > div > div[data-testid="stHorizontalBlock"] button {
+        background: #243043 !important;
+        color: white !important;
+        font-size: 14px !important;
+        width: auto !important;
+    }
 
-h1, h2, h3 {
-  color: #F8FAFF;
-}
-
-/* inputs */
-.stTextArea textarea, .stNumberInput input, .stTextInput input, .stSelectbox div {
-  background: #111827 !important;
-  color: #F2F6FF !important;
-  border: 1px solid #243043 !important;
-}
-
-/* buttons */
-.stButton button {
-  background: var(--accent) !important;
-  color: #0b0f14 !important;
-  border: 0 !important;
-  font-weight: 700 !important;
-  border-radius: 10px !important;
-}
-
-/* captions */
-small, .stCaption { color: #B8C6DA !important; }
-
-hr { border-color: #243043; }
-
-/* Make schedule output readable (text & code blocks) */
-div[data-testid="stText"] pre {
-  background-color: #0b0f14 !important;
-  color: #F2F6FF !important;
-  border: 1px solid #243043 !important;
-  border-radius: 12px !important;
-  padding: 14px !important;
-}
-
-div[data-testid="stCodeBlock"] pre {
-  background-color: #0b0f14 !important;
-  color: #F2F6FF !important;
-  border: 1px solid #243043 !important;
-  border-radius: 12px !important;
-  padding: 14px !important;
-}
-
-div[data-testid="stCodeBlock"] code {
-  color: #F2F6FF !important;
-}
+    /* Code Block & Expander */
+    div[data-testid="stCodeBlock"] pre { background-color: var(--panel) !important; border-radius: 10px; }
+    .streamlit-expanderHeader { background-color: var(--panel) !important; color: white !important; border-radius: 10px; }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
 
-# --- ИЗМЕНЕННОЕ НАЗВАНИЕ ЗДЕСЬ ---
+# --- Header ---
 st.title('Shuttle Shuffle 🏸')
-st.subheader('Badminton Game Scheduler')
+st.caption('Badminton Game Scheduler')
 
-st.caption("Честные матчи по рейтингу. Повторы — только когда иначе никак.")
+# --- Inputs ---
+col_in1, col_in2 = st.columns([3, 1])
+with col_in2:
+    st.write("") # Spacer
+    st.write("") 
+    if st.button("Load Demo List"):
+        load_demo()
 
-raw = st.text_area(
-    "Вставь рейтинг пар (1 строка = 1 пара, сверху сильнейшие):",
-    height=200,
-    placeholder="1) Maksim + Stas\n2) Oksana + Mikhail\n3) ...",
-)
+with col_in1:
+    raw = st.text_area(
+        "Paste pair list (1 line = 1 pair).\nSort by rank if applicable (1 = Strongest ↓)",
+        value=st.session_state.input_text,
+        height=180,
+        key="input_text_area",
+        placeholder="1. Maksim + Stas\n2. Oksana + Mikhail..."
+    )
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    courts = st.number_input("Courts", min_value=1, max_value=20, value=3, step=1)
-with col2:
-    rounds = st.number_input("Rounds (requested)", min_value=1, max_value=30, value=8, step=1)
-with col3:
-    round_minutes = st.number_input("Minutes per round", min_value=10, max_value=90, value=15, step=5)
+# --- Main Settings (Visible) ---
+c1, c2, c3 = st.columns(3)
+with c1:
+    courts = st.number_input("Courts", 1, 20, 1)
+with c2:
+    rounds = st.number_input("Rounds", 1, 30, 1)
+with c3:
+    max_gap = st.number_input("Max Rank Gap", 1, 50, 10)
 
-col4, col5 = st.columns(2)
-with col4:
-    start_time_str = st.text_input("Start time (Tallinn) HH:MM", value=datetime.now(TZ).strftime("%H:%M"))
-with col5:
-    max_gap = st.number_input("Max rank gap", min_value=1, max_value=50, value=4, step=1)
+# --- Advanced Settings (Hidden) ---
+with st.expander("⚙️ Advanced Settings"):
+    ac1, ac2 = st.columns(2)
+    with ac1:
+        start_time_str = st.text_input("Start Time (HH:MM)", value=datetime.now(TZ).strftime("%H:%M"))
+        round_minutes = st.number_input("Minutes / Round", 5, 90, 12)
+    with ac2:
+        max_repeats = st.number_input("Max Repeats", 0, 5, 1)
+        tail_rounds = st.number_input("Tail Rounds", 0, 10, 2)
+        seed = st.number_input("Random Seed (0 = Random)", 0, 999999, 0)
 
-colA, colB, colC = st.columns(3)
-with colA:
-    max_repeat_per_matchup = st.number_input("Max repeats per matchup", min_value=0, max_value=3, value=1, step=1)
-with colB:
-    repeat_tail_rounds = st.number_input("Allow repeats only in last N rounds", min_value=1, max_value=10, value=2, step=1)
-with colC:
-    seed = st.number_input("Random seed (optional)", min_value=0, max_value=999999, value=0, step=1)
-
-btn = st.button("Generate schedule")
-
-if btn:
-    pairs = parse_pairs(raw)
+# --- Action ---
+if st.button("SHUTTLE SHUFFLE 🚀"):
+    pairs = parse_pairs(st.session_state.input_text_area) # Read from state/area
+    
     if len(pairs) < 2:
-        st.error("Нужно минимум 2 пары.")
+        st.error("⚠️ Need at least 2 pairs to play!")
     else:
-        if seed != 0:
-            random.seed(int(seed))
-
-        # Parse start time
+        # Seed logic
+        if seed != 0: random.seed(int(seed))
+        
+        # Time parsing
         try:
             hh, mm = start_time_str.strip().split(":")
-            start_t = dtime(hour=int(hh), minute=int(mm))
-        except Exception:
-            start_t = datetime.now(TZ).time().replace(second=0, microsecond=0)
+            start_t = dtime(int(hh), int(mm))
+        except:
+            start_t = datetime.now(TZ).time().replace(second=0)
+        
+        start_dt = datetime.now(TZ).replace(hour=start_t.hour, minute=start_t.minute, second=0)
 
-        start_dt = datetime.now(TZ).replace(hour=start_t.hour, minute=start_t.minute, second=0, microsecond=0)
+        # Spinner & Magic
+        with st.spinner("Shuffling players..."):
+            rounds_actual, sched, used_counts, forced_early = schedule_session(
+                len(pairs), int(courts), int(rounds), int(max_gap), int(max_repeats), int(tail_rounds)
+            )
 
-        rounds_actual, sched, used_counts, forced_early = schedule_session(
-            n_pairs=len(pairs),
-            courts=int(courts),
-            rounds_requested=int(rounds),
-            max_gap=int(max_gap),
-            max_repeat_per_matchup=int(max_repeat_per_matchup),
-            repeat_tail_rounds=int(repeat_tail_rounds),
-        )
-
+        # Output
         if rounds_actual == 0:
-            st.error("При текущих настройках невозможно собрать даже 1 тур. Увеличь Max rank gap или уменьшай courts.")
+            st.error("❌ Impossible to generate schedule. Try increasing Gap or reducing Courts.")
         else:
+            rain_shuttles() # <--- ВАУ ЭФФЕКТ ТУТ
+
             if rounds_actual < int(rounds):
-                st.warning(
-                    f"Сделал {rounds_actual} тур(ов) вместо {int(rounds)}: "
-                    "иначе пришлось бы нарушать ограничения (слишком большой разрыв/слишком много повторов)."
-                )
+                st.warning(f"⚠️ Reduced to {rounds_actual} rounds to avoid conflicts.")
+            
+            # Format text
+            out_text = format_schedule(pairs, sched, start_dt, int(round_minutes), int(courts))
 
-            if forced_early > 0:
-                st.warning(
-                    f"⚠️ Вынужденные повторы ДО последних {int(repeat_tail_rounds)} туров: {forced_early}. "
-                    "Это значит, что иначе нельзя было заполнить все корты, сохранив Max rank gap."
-                )
+            # --- Results Area ---
+            st.success(f"✅ Generated {rounds_actual} rounds!")
+            
+            tab1, tab2 = st.tabs(["📱 Display", "📋 Copy Text"])
+            
+            with tab1:
+                # Beautiful card view
+                for r_idx, round_matches in enumerate(sched):
+                    t = start_dt + timedelta(minutes=int(round_minutes) * r_idx)
+                    with st.container():
+                        st.markdown(f"#### 🏸 Tour {r_idx+1} <span style='color:#888; font-size:0.8em'>({t.strftime('%H:%M')})</span>", unsafe_allow_html=True)
+                        for m in sorted(round_matches, key=lambda x: (x.a + x.b)):
+                            p1 = pairs[m.a]
+                            p2 = pairs[m.b]
+                            warn = "⚠️" if m.forced_repeat_early else ""
+                            st.info(f"**{p1}** vs  **{p2}** {warn}")
+                        st.divider()
 
-            out = format_schedule(pairs, sched, start_dt, int(round_minutes), int(courts))
-
-            st.subheader("Schedule")
-            st.code(out, language=None)
-
-            st.divider()
-            st.subheader("Copy for WhatsApp/Telegram")
-            st.text_area("Ready-to-copy text:", value=out, height=250)
-
-            # Small stats
-            total_matches = sum(len(rm) for rm in sched)
-            unique_matchups = sum(1 for k, v in used_counts.items() if v > 0)
-            repeats_total = sum(max(0, v - 1) for v in used_counts.values())
-
-            st.caption(f"Matches: {total_matches} • Unique matchups: {unique_matchups} • Total repeats: {repeats_total}")
-            st.caption("Подсказка: если хочешь меньше вынужденных повторов — чуть увеличь Max rank gap или уменьшай Rounds.")
+            with tab2:
+                st.text_area("Copy for Chat:", value=out_text, height=300)
