@@ -1,19 +1,15 @@
 import streamlit as st
 from dataclasses import dataclass
-from datetime import datetime, timedelta, time as dtime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
 from collections import defaultdict
 import random
 import re
-
-TZ = ZoneInfo("Europe/Tallinn")
 
 # -------------------- Session State & Demo Logic --------------------
 if "input_text_area" not in st.session_state:
     st.session_state.input_text_area = ""
 
 def load_demo():
-    # Анонимные имена для демонстрации
     names = [
         "Alex", "Jordan", "Casey", "Taylor", "Jamie", "Morgan", 
         "Riley", "Chris", "Pat", "Drew", "Avery", "Cameron", 
@@ -58,7 +54,8 @@ def try_build_round(n_pairs, courts, used_counts, max_gap, allowed_total_per_mat
                 opts = []
                 for b in (remaining - {a}):
                     if gap(a, b) > max_gap: continue
-                    key, cnt = canonical(a, b), used_counts.get(canonical(a, b), 0)
+                    key = canonical(a, b)
+                    cnt = used_counts.get(key, 0)
                     if cnt == 0: opts.append((b, 0))
                     elif allow_repeats and cnt < allowed_total_per_matchup: opts.append((b, 1))
                 if not opts: continue
@@ -113,27 +110,37 @@ st.markdown("""<style>
 </style>""", unsafe_allow_html=True)
 
 st.title('Shuttle Shuffle 🏸')
+st.caption('Badminton Game Scheduler')
+
 col_in1, col_in2 = st.columns([3, 1])
 with col_in2:
     st.write(""); st.write("")
     st.button("Load Demo", on_click=load_demo)
 with col_in1:
-    raw = st.text_area("Pair list:", height=150, key="input_text_area")
+    raw = st.text_area("Paste pair list (1 line = 1 pair). Sort by rank if applicable (1 = Strongest ↓):", 
+                       height=150, key="input_text_area")
 
 c1, c2, c3 = st.columns(3)
 with c1: courts = st.number_input("Courts", 1, 20, 1)
 with c2: rounds = st.number_input("Rounds", 1, 30, 1)
 with c3: max_gap = st.number_input("Max Gap", 1, 50, 10)
 
+with st.expander("⚙️ Advanced Settings"):
+    round_minutes = st.number_input("Minutes per Round", 5, 60, 12)
+    max_repeats = st.number_input("Max Repeats", 0, 5, 1)
+    seed = st.number_input("Random Seed (0 = Random)", 0, 999999, 0)
+
 if st.button("GENERATE SCHEDULE 🚀"):
     pairs = parse_pairs(raw)
     if len(pairs) < 2:
         st.error("Need more pairs!")
     else:
-        now = datetime.now(TZ)
-        start_dt = now.replace(second=0, microsecond=0)
+        if seed != 0: random.seed(int(seed))
+        start_dt = datetime.now().replace(second=0, microsecond=0)
+        
         with st.spinner("Processing..."):
-            actual_r, sched = schedule_session(len(pairs), int(courts), int(rounds), int(max_gap), 1, 2)
+            actual_r, sched = schedule_session(len(pairs), int(courts), int(rounds), int(max_gap), int(max_repeats), 2)
+        
         if actual_r == 0:
             st.error("No solution found. Try increasing Max Gap.")
         else:
@@ -141,8 +148,8 @@ if st.button("GENERATE SCHEDULE 🚀"):
             t1, t2 = st.tabs(["Display", "Copy Text"])
             with t1:
                 for idx, r_m in enumerate(sched):
-                    t = start_dt + timedelta(minutes=15 * idx)
-                    st.markdown(f"**Tour {idx+1} ({t.strftime('%H:%M')})**")
+                    t = start_dt + timedelta(minutes=int(round_minutes) * idx)
+                    st.markdown(f"#### Tour {idx+1} ({t.strftime('%H:%M')})")
                     for m in r_m: st.info(f"{pairs[m.a]} vs {pairs[m.b]}")
             with t2:
-                st.text_area("For Chat:", value=format_schedule(pairs, sched, start_dt, 15, int(courts)), height=250)
+                st.text_area("For Chat:", value=format_schedule(pairs, sched, start_dt, int(round_minutes), int(courts)), height=250)
