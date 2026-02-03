@@ -15,7 +15,7 @@ st.subheader("Список пар (один раз на турнир)")
 teams_text = st.text_area(
     "Формат: номер + имя пары (по одной строке)",
     height=220,
-    placeholder="1 Максим Щ и Стас Щ\n2 Оксана и Михаил К\n3 Мария и Алексей Т\n..."
+    placeholder="1 Максим и Стас\n2 Оксана и Михаил\n3 Мария и Алексей\n..."
 )
 
 def parse_teams(text: str) -> dict[int, str]:
