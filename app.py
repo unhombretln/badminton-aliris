@@ -1,4 +1,6 @@
 import streamlit as st
+st.sidebar.success("Main app loaded")
+import streamlit as st
 from dataclasses import dataclass
 from collections import defaultdict
 import random
